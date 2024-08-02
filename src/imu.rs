@@ -1,54 +1,80 @@
 use nalgebra as na;
-use nalgebra::Quaternion;
+use nalgebra::{Quaternion, Vector4};
 use serde::*;
 use serialport::*;
 use std::io::{Read, Write};
-use std::sync::Arc;
-use std::{error, time};
 use std::ops::Deref;
 use std::sync::mpsc::Sender;
+use std::sync::Arc;
+use std::{error, time};
+use three_d::Mat4;
+
 
 type Result<T> = std::result::Result<T, Box<dyn error::Error>>;
 
 #[derive(Clone, Debug)]
 pub struct Euler {
-    roll: f32,
-    pitch: f32,
-    yaw: f32,
+    pub roll: f32,
+    pub pitch: f32,
+    pub yaw: f32,
+}
+
+impl Euler {
+    pub fn to_rotation_mat(&self) -> Mat4 {
+        let q = cgmath::Euler::new(
+            cgmath::Rad(self.pitch),
+            cgmath::Rad(self.yaw),
+            cgmath::Rad(self.roll),
+        );
+        Mat4::from(q)
+    }
 }
 
 #[derive(Clone, Debug)]
 pub struct Orientation {
-    i: f32,
-    j: f32,
-    k: f32,
-    w: f32,
+    pub i: f32,
+    pub j: f32,
+    pub k: f32,
+    pub w: f32,
+}
+
+impl Orientation {
+    pub fn to_rotation_mat(&self) -> Mat4 {
+        let q = cgmath::Quaternion::new(self.w, self.i, self.j, self.k);
+        Mat4::from(q)
+    }
 }
 
 #[derive(Clone, Debug)]
 pub struct Acceleration {
-    x: f32,
-    y: f32,
-    z: f32,
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
 }
 
 #[derive(Clone, Debug)]
 pub struct AngularVelocity {
-    x: f32,
-    y: f32,
-    z: f32,
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
 }
 
 #[derive(Clone, Debug)]
 pub struct MagneticField {
-    x: f32,
-    y: f32,
-    z: f32,
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
 }
 
 pub struct IMU {
     pub port: Box<dyn SerialPort>,
-    sender: Sender<(Orientation, Euler, Acceleration, AngularVelocity, MagneticField)>,
+    sender: Sender<(
+        Orientation,
+        Euler,
+        Acceleration,
+        AngularVelocity,
+        MagneticField,
+    )>,
     buffer: Vec<u8>,
     quaternion: Arc<Orientation>,
     euler: Arc<Euler>,
@@ -60,7 +86,16 @@ pub struct IMU {
 const G: f32 = 9.81;
 
 impl IMU {
-    pub fn new(port_name: &str, sender: Sender<(Orientation, Euler, Acceleration, AngularVelocity, MagneticField)>) -> Self {
+    pub fn new(
+        port_name: &str,
+        sender: Sender<(
+            Orientation,
+            Euler,
+            Acceleration,
+            AngularVelocity,
+            MagneticField,
+        )>,
+    ) -> Self {
         let mut imu = IMU {
             port: serialport::new(port_name, 921600)
                 .open()
@@ -123,7 +158,8 @@ impl IMU {
                     }
 
                     if self.buffer.len() > 2 {
-                        if self.buffer[1] != 0x55 || !(self.buffer[2] == 20 || self.buffer[2] == 44) {
+                        if self.buffer[1] != 0x55 || !(self.buffer[2] == 20 || self.buffer[2] == 44)
+                        {
                             self.buffer.clear();
                             continue;
                         }
@@ -144,7 +180,7 @@ impl IMU {
 
                         if len == 20 {
                             let data =
-                                Self::hex_to_ieee(self.buffer[7..total_buf_len - 2].to_vec());
+                                Self::hex_to_ieee(self.buffer[7..23].to_vec());
                             // println!("{:?}", data);
 
                             let (q, euler) = self.decode_angle_data(&data).unwrap();
@@ -152,7 +188,7 @@ impl IMU {
                             self.euler = Arc::new(euler);
                         } else if len == 44 {
                             let data =
-                                Self::hex_to_ieee(self.buffer[7..total_buf_len - 2].to_vec());
+                                Self::hex_to_ieee(self.buffer[7..47].to_vec());
                             // println!("{:?}", data);
 
                             let (w, a, mag) = self.decode_9dof_data(&data).unwrap();
@@ -165,12 +201,15 @@ impl IMU {
                             continue;
                         }
 
-
-                        self.sender.send((self.quaternion.deref().clone(),
-                                              self.euler.deref().clone(),
-                                              self.acceleration.deref().clone(),
-                                              self.angular_velocity.deref().clone(),
-                                              self.magnetic_field.deref().clone())).unwrap();
+                        self.sender
+                            .send((
+                                self.quaternion.deref().clone(),
+                                self.euler.deref().clone(),
+                                self.acceleration.deref().clone(),
+                                self.angular_velocity.deref().clone(),
+                                self.magnetic_field.deref().clone(),
+                            ))
+                            .unwrap();
 
                         self.buffer.clear();
                     } else {
@@ -180,7 +219,7 @@ impl IMU {
                     }
                 }
             }
-            std::thread::sleep(time::Duration::from_millis(100));
+            std::thread::sleep(time::Duration::from_millis(1));
         }
     }
 
@@ -204,13 +243,10 @@ impl IMU {
         raw_data.reverse();
         let mut ieee_data = Vec::new();
         for chunk in raw_data.chunks(4) {
-            let data2str = format!(
-                "{:02x}{:02x}{:02x}{:02x}",
+            let data2str = [
                 chunk[0], chunk[1], chunk[2], chunk[3]
-            );
-            ieee_data.push(f32::from_be_bytes(
-                hex::decode(data2str).unwrap().try_into().unwrap(),
-            ));
+            ];
+            ieee_data.push(f32::from_be_bytes(data2str.try_into().unwrap()));
         }
         ieee_data.reverse();
         ieee_data
@@ -221,48 +257,53 @@ impl IMU {
         data: &Vec<f32>,
     ) -> Result<(AngularVelocity, Acceleration, MagneticField)> {
         let w = AngularVelocity {
-            x: data[0],
-            y: data[1],
-            z: data[2],
+            x: data[1],
+            y: data[2],
+            z: data[3],
         };
 
         let a = Acceleration {
-            x: data[3] * -G,
-            y: data[4] * -G,
-            z: data[5] * -G,
+            x: data[4] * -G,
+            y: data[5] * -G,
+            z: data[6] * -G,
         };
 
         let mag = MagneticField {
-            x: data[6],
-            y: data[7],
-            z: data[8],
+            x: data[7],
+            y: data[8],
+            z: data[9],
         };
 
-        // println!("{:?}\n {:?}\n {:?}\n", w, a, mag);
+        println!("{:?}\n {:?}\n {:?}\n", w, a, mag);
         Ok((w, a, mag))
     }
 
     fn decode_angle_data(&mut self, data: &Vec<f32>) -> Result<(Orientation, Euler)> {
-        let angle_radian: Vec<f32> = data[0..4].iter().map(|&x| f32::to_radians(x)).collect();
-
-        let quaternion = Orientation {
-            i: angle_radian[0],
-            j: angle_radian[1],
-            k: angle_radian[2],
-            w: angle_radian[3],
-        };
-
-        let na_quat = Quaternion::new(quaternion.w, quaternion.i, quaternion.j, quaternion.k);
-
-        let euler = na::geometry::UnitQuaternion::from_quaternion(na_quat).euler_angles();
+        let angle_radian: Vec<f32> = data.iter().map(|&x| f32::to_radians(x)).collect();
 
         let euler = Euler {
-            roll: euler.0,
-            pitch: euler.1,
-            yaw: euler.2,
+            roll: angle_radian[1],
+            pitch: angle_radian[2],
+            yaw: -angle_radian[3],
         };
 
-        // println!("{:?}\n {:?}", quaternion, euler);
+        let binding = na::geometry::UnitQuaternion::from_euler_angles(
+            euler.roll,
+            euler.pitch,
+            euler.yaw,
+        );
+
+        let qua = binding.quaternion();
+
+        let quaternion = Orientation {
+            i: qua.i,
+            j: qua.j,
+            k: qua.k,
+            w: qua.w,
+        };
+
+
+        println!("{:?}\n {:?}", quaternion, euler);
         Ok((quaternion, euler))
     }
 }
