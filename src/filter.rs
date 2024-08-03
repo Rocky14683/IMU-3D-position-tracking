@@ -2,6 +2,7 @@ use crate::imu::{Acceleration, AngularVelocity, Euler, MagneticField, Orientatio
 use nalgebra as na;
 use std::sync::mpsc::Receiver;
 
+const SAMPLE_RATE_HZ: f32 = 1000.0;
 pub struct EkfFilter {
     receiver: Receiver<(
         Orientation,
@@ -10,4 +11,5 @@ pub struct EkfFilter {
         AngularVelocity,
         MagneticField,
     )>,
+
 }
