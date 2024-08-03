@@ -43,29 +43,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                    w,
                    m,
                )) => {
-                let rotation_matrix = glam::Mat3::from_quat(
-                    glam::Quat::from_xyzw(quaternion.i, quaternion.j, quaternion.k, quaternion.w)
-                );
-
-                // Create a cube
-                let cube_points = vec![
-                    glam::Vec3::new(-1.0, -1.0, -1.0),
-                    glam::Vec3::new(1.0, -1.0, -1.0),
-                    glam::Vec3::new(1.0, 1.0, -1.0),
-                    glam::Vec3::new(-1.0, 1.0, -1.0),
-                    glam::Vec3::new(-1.0, -1.0, 1.0),
-                    glam::Vec3::new(1.0, -1.0, 1.0),
-                    glam::Vec3::new(1.0, 1.0, 1.0),
-                    glam::Vec3::new(-1.0, 1.0, 1.0),
-                ];
-
-                // Apply rotation to the cube points
-                let rotated_cube_points: Vec<glam::Vec3> = cube_points
-                    .iter()
-                    .map(|&point| rotation_matrix * point)
-                    .collect();
-
-                // Visualize orientation using rerun
 
                 rec.log("box", &Boxes3D::from_centers_and_sizes(
                     [(0.0, 0.0, 0.0)],
@@ -74,13 +51,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     <rerun::Quaternion as Into<crate::components::Rotation3D>>::into(rerun::Quaternion::from_xyzw([quaternion.i, quaternion.j, quaternion.k, quaternion.w])), // 45 degrees around Z
                 ])).unwrap();
 
-
-                rec.log(
-                    "rotated_cube",
-                    &Points3D::new(rotated_cube_points)
-                        .with_colors(vec![Color::from_rgb(0, 255, 0); 8])
-                        .with_radii([0.1; 8]),
-                ).unwrap();
             }
             Err(e) => {
                 println!("Error receiving data: {:?}", e);
