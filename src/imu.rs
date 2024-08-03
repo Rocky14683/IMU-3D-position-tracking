@@ -284,7 +284,7 @@ impl IMU {
         let euler = Euler {
             roll: angle_radian[1],
             pitch: angle_radian[2],
-            yaw: -angle_radian[3],
+            yaw: angle_radian[3],
         };
 
         let binding = na::geometry::UnitQuaternion::from_euler_angles(

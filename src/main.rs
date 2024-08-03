@@ -17,7 +17,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let args: Vec<String> = env::args().collect();
 
-    let (tx, rx) = mpsc::channel();
+    let (imu_tx, imu_rx) = mpsc::channel();
+
+    let (filter_tx, filter_rx) = mpsc::channel();
 
     let mut imu = Arc::new(Mutex::new(IMU::new(
         if args.len() > 1 {
@@ -25,17 +27,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         } else {
             "/dev/tty.usbserial-0001"
         },
-        tx,
+        imu_tx,
     )));
 
-    let mut imu_clone = Arc::clone(&imu);
     std::thread::spawn(move || {
-        imu_clone.lock().unwrap().update_loop();
+        imu.lock().unwrap().update_loop();
     });
 
 
+    let mut filter = Arc::new(Mutex::new(filter::EkfFilter::new(imu_rx, filter_tx)));
+
+    std::thread::spawn(move || {
+        filter.lock().unwrap().update_loop();
+    });
+
+
+
+
+
+
     loop {
-        match rx.recv() {
+        match imu_rx.recv() {
             Ok((
                    quaternion,
                    euler,
