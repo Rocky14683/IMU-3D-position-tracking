@@ -283,7 +283,7 @@ impl IMU {
 
         let euler = Euler {
             roll: angle_radian[1],
-            pitch: angle_radian[2],
+            pitch: -angle_radian[2],
             yaw: -angle_radian[3],
         };
 
