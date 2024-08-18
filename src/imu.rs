@@ -1,12 +1,13 @@
 use nalgebra as na;
-use nalgebra::{Quaternion, Vector4};
+use nalgebra::{Quaternion, Rotation, Rotation3, Vector4};
 use serde::*;
 use serialport::*;
 use std::io::{Read, Write};
-use std::ops::Deref;
+use std::ops::{Deref, Mul};
 use std::sync::mpsc::Sender;
 use std::sync::Arc;
 use std::{error, time};
+use cgmath::{Vector3, Zero};
 use three_d::Mat4;
 
 
@@ -52,6 +53,18 @@ pub struct Acceleration {
     pub z: f32,
 }
 
+impl Mul<f32> for Acceleration {
+    type Output = Acceleration;
+
+    fn mul(self, rhs: f32) -> Self::Output {
+        Acceleration {
+            x: self.x * rhs,
+            y: self.y * rhs,
+            z: self.z * rhs,
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct AngularVelocity {
     pub x: f32,
@@ -81,6 +94,7 @@ pub struct IMU {
     acceleration: Arc<Acceleration>,
     angular_velocity: Arc<AngularVelocity>,
     magnetic_field: Arc<MagneticField>,
+    rotation_mat: Rotation3<f32>
 }
 
 const G: f32 = 9.81;
@@ -128,6 +142,7 @@ impl IMU {
                 y: 0.0,
                 z: 0.0,
             }),
+            rotation_mat: Rotation3::default()
         };
 
         imu.port
@@ -139,6 +154,8 @@ impl IMU {
     }
 
     pub fn update_loop(&mut self) {
+        // let mut calibrate_data = Vec::new();
+        // let mut calibrating = true;
         self.port.flush().unwrap();
         loop {
             let to_read_len = self.port.bytes_to_read().unwrap();
@@ -201,15 +218,29 @@ impl IMU {
                             continue;
                         }
 
-                        self.sender
-                            .send((
-                                self.quaternion.deref().clone(),
-                                self.euler.deref().clone(),
-                                self.acceleration.deref().clone(),
-                                self.angular_velocity.deref().clone(),
-                                self.magnetic_field.deref().clone(),
-                            ))
-                            .unwrap();
+                        // if calibrate_data.len() < 10 {
+                        //     println!("Calibrating...");
+                        //     calibrate_data.push(self.acceleration.deref().clone());
+                        // } else {
+                        //     if calibrating {
+                        //         let mut sum = Vector3::zero();
+                        //         for data in calibrate_data.iter() {
+                        //             sum += Vector3::new(data.x, data.y, data.z);
+                        //         }
+                        //         self.accel_weight = sum / 10.0;
+                        //         calibrating = false;
+                        //     }
+
+                            self.sender
+                                .send((
+                                    self.quaternion.deref().clone(),
+                                    self.euler.deref().clone(),
+                                    self.acceleration.deref().clone(),
+                                    self.angular_velocity.deref().clone(),
+                                    self.magnetic_field.deref().clone(),
+                                ))
+                                .unwrap();
+                        // }
 
                         self.buffer.clear();
                     } else {
@@ -263,19 +294,36 @@ impl IMU {
         };
 
         let a = Acceleration {
-            x: data[4] * -G,
-            y: data[5] * -G,
-            z: data[6] * -G,
+            x: data[4],
+            y: data[5],
+            z: data[6],
         };
+
+        let a = self.process_accel(a);
 
         let mag = MagneticField {
             x: data[7],
             y: data[8],
             z: data[9],
         };
-
-        println!("{:?}\n {:?}\n {:?}\n", w, a, mag);
+        println!("{:?}\n", a);
+        // println!("{:?}\n {:?}\n {:?}\n", w, a, mag);
         Ok((w, a, mag))
+    }
+
+    fn process_accel(&mut self, raw_a: Acceleration)-> Acceleration {
+        let mut acc_k = (raw_a.x.powi(2) + raw_a.y.powi(2) + raw_a.z.powi(2)).sqrt();
+        acc_k = if acc_k == 0.0 { 1.0 } else { acc_k };
+
+        let accel = Acceleration {
+            x: raw_a.x * -G / acc_k,
+            y: raw_a.y * -G / acc_k,
+            z: raw_a.z * -G / acc_k,
+        };
+
+
+        accel
+
     }
 
     fn decode_angle_data(&mut self, data: &Vec<f32>) -> Result<(Orientation, Euler)> {
@@ -303,7 +351,7 @@ impl IMU {
         };
 
 
-        println!("{:?}\n {:?}", quaternion, euler);
+        // println!("{:?}\n {:?}", quaternion, euler);
         Ok((quaternion, euler))
     }
 }
